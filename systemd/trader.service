@@ -1,0 +1,14 @@
+
+[Unit]
+Description=Rust Intraday Trader Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/trader_project
+ExecStart=/opt/trader_project/trader_project
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target

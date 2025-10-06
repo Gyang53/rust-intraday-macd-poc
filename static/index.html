@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>A股 实时/历史 查看 (模拟/实盘切换)</title>
+        <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+        <style>
+            body {
+                font-family: Arial;
+                margin: 12px;
+            }
+            #controls {
+                margin-bottom: 12px;
+            }
+            button {
+                margin-right: 8px;
+                padding: 8px 12px;
+            }
+            #chart {
+                width: 100%;
+                height: 520px;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>行情查看</h2>
+        <div id="controls">
+            <label>代码: <input id="symbol" value="600733.SH" /></label>
+            <button onclick="switchMode('sim')">模拟盘</button>
+            <button onclick="switchMode('real')">实盘（最近 30 日）</button>
+            <label
+                >日期 (YYYY-MM-DD, 模拟盘查看当天):
+                <input id="date" placeholder="2025-09-30"
+            /></label>
+            <button onclick="loadChart()">刷新</button>
+        </div>
+
+        <div id="chart"></div>
+
+        <script>
+            const chart = echarts.init(document.getElementById("chart"));
+            const option = {
+                title: { text: "价格 + MACD" },
+                tooltip: { trigger: "axis" },
+                grid: [
+                    { left: "5%", right: "5%", height: "60%" },
+                    { left: "5%", right: "5%", top: "70%", height: "20%" },
+                ],
+                xAxis: [
+                    { type: "time", gridIndex: 0 },
+                    { type: "time", gridIndex: 1 },
+                ],
+                yAxis: [
+                    { type: "value", gridIndex: 0, scale: true, name: "价格" },
+                    { type: "value", gridIndex: 1, scale: true, name: "MACD" },
+                ],
+                series: [
+                    {
+                        name: "price",
+                        type: "line",
+                        xAxisIndex: 0,
+                        yAxisIndex: 0,
+                        data: [],
+                        showSymbol: false,
+                    },
+                    {
+                        name: "DIF",
+                        type: "line",
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: [],
+                        showSymbol: false,
+                    },
+                    {
+                        name: "DEA",
+                        type: "line",
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: [],
+                        showSymbol: false,
+                    },
+                    {
+                        name: "MACD",
+                        type: "bar",
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: [],
+                    },
+                ],
+            };
+            chart.setOption(option);
+
+            async function switchMode(mode) {
+                await fetch("/api/set_mode/" + mode, { method: "POST" });
+                alert("mode set to " + mode);
+                loadChart();
+            }
+
+            async function loadChart() {
+                const symbol = document.getElementById("symbol").value.trim();
+                const date = document.getElementById("date").value.trim();
+                let url = "/api/history/" + encodeURIComponent(symbol);
+                if (date) url += "?date=" + encodeURIComponent(date);
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    alert("fetch error: " + resp.statusText);
+                    return;
+                }
+                const data = await resp.json();
+                const points = data.points || [];
+                // build arrays
+                const priceData = points.map((p) => [p.ts, p.price]);
+                const difData = points.map((p) => [p.ts, p.dif]);
+                const deaData = points.map((p) => [p.ts, p.dea]);
+                const macdData = points.map((p) => [p.ts, p.macd]);
+                chart.setOption({
+                    series: [
+                        { name: "price", data: priceData },
+                        { name: "DIF", data: difData },
+                        { name: "DEA", data: deaData },
+                        { name: "MACD", data: macdData },
+                    ],
+                });
+            }
+
+            // initial load
+            loadChart();
+        </script>
+    </body>
+</html>
