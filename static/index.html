@@ -1,130 +1,2142 @@
 <!doctype html>
-<html>
+<html lang="zh-CN">
     <head>
-        <meta charset="utf-8" />
-        <title>A股 实时/历史 查看 (模拟/实盘切换)</title>
-        <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-        <style>
-            body {
-                font-family: Arial;
-                margin: 12px;
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Rust Intraday MACD - 专业技术分析平台</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link
+            href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css"
+            rel="stylesheet"
+        />
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+
+        <script>
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        colors: {
+                            primary: "#1e40af",
+                            secondary: "#3b82f6",
+                            success: "#10b981",
+                            danger: "#ef4444",
+                            warning: "#f59e0b",
+                            bullish: "#10b981",
+                            bearish: "#ef4444",
+                            neutral: "#6b7280",
+                        },
+                        fontFamily: {
+                            mono: ["JetBrains Mono", "Consolas", "monospace"],
+                        },
+                        animation: {
+                            "fade-in": "fadeIn 0.5s ease-in-out",
+                            "slide-up": "slideUp 0.3s ease-out",
+                            "pulse-slow":
+                                "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+                        },
+                    },
+                },
+            };
+        </script>
+
+        <style type="text/tailwindcss">
+            @layer utilities {
+                .content-auto {
+                    content-visibility: auto;
+                }
+                .glass-effect {
+                    background: rgba(255, 255, 255, 0.1);
+                    backdrop-filter: blur(10px);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                }
+                .gradient-bg {
+                    background: linear-gradient(
+                        135deg,
+                        #667eea 0%,
+                        #764ba2 100%
+                    );
+                }
+                .chart-container {
+                    position: relative;
+                    height: 400px;
+                    width: 100%;
+                }
+                .mini-chart {
+                    position: relative;
+                    height: 100px;
+                    width: 100%;
+                }
             }
-            #controls {
-                margin-bottom: 12px;
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                }
+                to {
+                    opacity: 1;
+                }
             }
-            button {
-                margin-right: 8px;
-                padding: 8px 12px;
+
+            @keyframes slideUp {
+                from {
+                    transform: translateY(20px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
             }
-            #chart {
-                width: 100%;
-                height: 520px;
+
+            .trading-view {
+                background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            }
+
+            .signal-badge {
+                transition: all 0.3s ease;
+            }
+
+            .signal-badge:hover {
+                transform: scale(1.05);
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            }
+
+            .price-change {
+                transition: all 0.3s ease;
+            }
+
+            .loading-spinner {
+                border: 3px solid #f3f4f6;
+                border-top: 3px solid #3b82f6;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                animation: spin 1s linear infinite;
+            }
+
+            @keyframes spin {
+                0% {
+                    transform: rotate(0deg);
+                }
+                100% {
+                    transform: rotate(360deg);
+                }
+            }
+
+            .trading-status {
+                padding: 2px 8px;
+                border-radius: 12px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+
+            .status-trading {
+                background-color: #10b981;
+                color: white;
+            }
+
+            .status-break {
+                background-color: #f59e0b;
+                color: white;
+            }
+
+            .status-closed {
+                background-color: #ef4444;
+                color: white;
             }
         </style>
     </head>
-    <body>
-        <h2>行情查看</h2>
-        <div id="controls">
-            <label>代码: <input id="symbol" value="600733.SH" /></label>
-            <button onclick="switchMode('sim')">模拟盘</button>
-            <button onclick="switchMode('real')">实盘（最近 30 日）</button>
-            <label
-                >日期 (YYYY-MM-DD, 模拟盘查看当天):
-                <input id="date" placeholder="2025-09-30"
-            /></label>
-            <button onclick="loadChart()">刷新</button>
-        </div>
+    <body class="bg-gray-50 font-sans">
+        <!-- Header -->
+        <header class="bg-white shadow-lg sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-16">
+                    <div class="flex items-center space-x-4">
+                        <div class="flex-shrink-0">
+                            <h1 class="text-xl font-bold text-gray-900">
+                                <i
+                                    class="fa fa-line-chart text-primary mr-2"
+                                ></i>
+                                Rust Intraday MACD
+                            </h1>
+                        </div>
+                        <div class="hidden md:block">
+                            <div class="ml-10 flex items-baseline space-x-4">
+                                <a
+                                    href="#"
+                                    class="nav-link text-gray-900 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                                >
+                                    <i class="fa fa-home mr-1"></i>实时行情
+                                </a>
+                                <a
+                                    href="#"
+                                    class="nav-link text-gray-500 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                                >
+                                    <i class="fa fa-history mr-1"></i>历史数据
+                                </a>
+                                <a
+                                    href="#"
+                                    class="nav-link text-gray-500 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                                >
+                                    <i class="fa fa-cogs mr-1"></i>策略回测
+                                </a>
+                                <a
+                                    href="#"
+                                    class="nav-link text-gray-500 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                                >
+                                    <i class="fa fa-bullseye mr-1"></i>实时监控
+                                </a>
+                            </div>
+                        </div>
+                    </div>
 
-        <div id="chart"></div>
+                    <div class="flex items-center space-x-4">
+                        <!-- Trading Status -->
+                        <div
+                            id="tradingStatus"
+                            class="trading-status status-closed"
+                        >
+                            <i class="fa fa-clock-o mr-1"></i>
+                            休市中
+                        </div>
+
+                        <!-- Symbol Input -->
+                        <div class="relative">
+                            <input
+                                type="text"
+                                id="symbolInput"
+                                placeholder="输入股票代码 (如: 000001, 600733)"
+                                class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                value="600733"
+                            />
+                            <i
+                                class="fa fa-search absolute left-3 top-3 text-gray-400"
+                            ></i>
+                        </div>
+
+                        <!-- Market Selector -->
+                        <select
+                            id="marketSelector"
+                            class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                        >
+                            <option value="realtime">实盘模式</option>
+                            <option value="simulation">模拟模式</option>
+                        </select>
+
+                        <!-- Refresh Button -->
+                        <button
+                            id="refreshBtn"
+                            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            <i class="fa fa-bullseye mr-1"></i>刷新
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- Stock Information Card -->
+            <div class="mb-8 animate-fade-in">
+                <div
+                    class="bg-white rounded-xl shadow-lg p-6 border border-gray-200"
+                >
+                    <div
+                        class="flex flex-col md:flex-row md:items-center justify-between"
+                    >
+                        <div class="flex items-center space-x-6 mb-4 md:mb-0">
+                            <div>
+                                <h2
+                                    id="stockName"
+                                    class="text-2xl font-bold text-gray-900"
+                                >
+                                    股票名称
+                                </h2>
+                                <p
+                                    id="stockSymbol"
+                                    class="text-sm text-gray-500"
+                                >
+                                    股票代码
+                                </p>
+                            </div>
+                            <div class="text-center">
+                                <div
+                                    id="currentPrice"
+                                    class="text-3xl font-bold text-gray-900"
+                                >
+                                    --
+                                </div>
+                                <div
+                                    id="priceChange"
+                                    class="text-sm font-medium text-success"
+                                >
+                                    --
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 text-sm">
+                                <div class="text-center">
+                                    <div class="text-gray-500">今开</div>
+                                    <div id="openPrice" class="font-medium">
+                                        --
+                                    </div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-gray-500">最高</div>
+                                    <div
+                                        id="highPrice"
+                                        class="font-medium text-success"
+                                    >
+                                        --
+                                    </div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-gray-500">最低</div>
+                                    <div
+                                        id="lowPrice"
+                                        class="font-medium text-danger"
+                                    >
+                                        --
+                                    </div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-gray-500">昨收</div>
+                                    <div id="prevClose" class="font-medium">
+                                        --
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center space-x-4">
+                            <div class="text-center">
+                                <div class="text-gray-500 text-sm">成交量</div>
+                                <div id="volume" class="font-medium">--</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-gray-500 text-sm">成交额</div>
+                                <div id="amount" class="font-medium">--</div>
+                            </div>
+                            <div id="tradingTime" class="text-sm text-gray-500">
+                                <i class="fa fa-clock-o mr-1"></i>
+                                --:--:--
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                <!-- Price Chart -->
+                <div class="bg-white rounded-xl shadow-lg p-6 animate-slide-up">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">
+                            <i class="fa fa-area-chart text-primary mr-2"></i>
+                            价格走势图
+                        </h3>
+                        <div class="flex space-x-2">
+                            <button
+                                class="period-btn px-3 py-1 text-xs bg-primary text-white rounded"
+                                data-period="day"
+                            >
+                                日K
+                            </button>
+                            <button
+                                class="period-btn px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+                                data-period="week"
+                            >
+                                周K
+                            </button>
+                            <button
+                                class="period-btn px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+                                data-period="month"
+                            >
+                                月K
+                            </button>
+                        </div>
+                    </div>
+                    <div id="priceChart" class="chart-container"></div>
+                </div>
+
+                <!-- MACD Chart -->
+                <div class="bg-white rounded-xl shadow-lg p-6 animate-slide-up">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">
+                            <i class="fa fa-bar-chart text-primary mr-2"></i>
+                            MACD指标
+                        </h3>
+                        <div class="text-sm text-gray-500">
+                            周期: <span id="macdPeriods">12, 26, 9</span>
+                        </div>
+                    </div>
+                    <div id="macdChart" class="chart-container"></div>
+                </div>
+            </div>
+
+            <!-- Technical Indicators Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+                <!-- RSI -->
+                <div class="bg-white rounded-xl shadow-lg p-6 animate-slide-up">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                        <i class="fa fa-line-chart text-warning mr-2"></i>
+                        RSI指标
+                    </h3>
+                    <div class="mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-sm text-gray-600">RSI(14)</span>
+                            <span
+                                id="rsiValue"
+                                class="text-lg font-bold text-gray-900"
+                                >--</span
+                            >
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                                id="rsiBar"
+                                class="bg-warning h-2 rounded-full transition-all duration-500"
+                                style="width: 50%"
+                            ></div>
+                        </div>
+                        <div
+                            class="flex justify-between text-xs text-gray-500 mt-1"
+                        >
+                            <span>0</span>
+                            <span>30</span>
+                            <span>50</span>
+                            <span>70</span>
+                            <span>100</span>
+                        </div>
+                    </div>
+                    <div
+                        id="rsiStatus"
+                        class="text-sm font-medium text-blue-600"
+                    >
+                        <i class="fa fa-info-circle mr-1"></i>
+                        等待数据...
+                    </div>
+                </div>
+
+                <!-- KDJ -->
+                <div class="bg-white rounded-xl shadow-lg p-6 animate-slide-up">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                        <i class="fa fa-random text-success mr-2"></i>
+                        KDJ指标
+                    </h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-gray-600">K值</span>
+                            <span id="kdjK" class="text-sm font-medium"
+                                >--</span
+                            >
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-gray-600">D值</span>
+                            <span id="kdjD" class="text-sm font-medium"
+                                >--</span
+                            >
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-gray-600">J值</span>
+                            <span id="kdjJ" class="text-sm font-medium"
+                                >--</span
+                            >
+                        </div>
+                    </div>
+                    <div
+                        id="kdjSignal"
+                        class="mt-4 text-sm font-medium text-green-600"
+                    >
+                        <i class="fa fa-info-circle mr-1"></i>
+                        等待数据...
+                    </div>
+                </div>
+
+                <!-- Bollinger Bands -->
+                <div class="bg-white rounded-xl shadow-lg p-6 animate-slide-up">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                        <i class="fa fa-bullseye text-purple-600 mr-2"></i>
+                        布林带
+                    </h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">上轨</span>
+                            <span id="bbUpper" class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">中轨</span>
+                            <span id="bbMiddle" class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">下轨</span>
+                            <span id="bbLower" class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">%B</span>
+                            <span id="bbPercentB" class="font-medium">--</span>
+                        </div>
+                    </div>
+                    <div
+                        id="bbStatus"
+                        class="mt-4 text-sm font-medium text-blue-600"
+                    >
+                        <i class="fa fa-info-circle mr-1"></i>
+                        等待数据...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trading Signals -->
+            <div class="mb-8 animate-slide-up">
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-6">
+                        <i class="fa fa-signal text-primary mr-2"></i>
+                        交易信号分析
+                    </h3>
+                    <div
+                        id="signalsContainer"
+                        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                    >
+                        <div
+                            class="col-span-full text-center py-8 text-gray-500"
+                        >
+                            <i class="fa fa-spinner fa-spin text-2xl mb-2"></i>
+                            <p>正在分析数据，请稍候...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Market Depth -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                <!-- Buy Orders -->
+                <div class="bg-white rounded-xl shadow-lg p-6 animate-slide-up">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                        <i class="fa fa-arrow-up text-success mr-2"></i>
+                        买盘 (五档)
+                    </h3>
+                    <div id="buyOrders" class="space-y-2">
+                        <div class="text-center py-4 text-gray-500">
+                            <i class="fa fa-spinner fa-spin mr-1"></i>
+                            加载中...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sell Orders -->
+                <div class="bg-white rounded-xl shadow-lg p-6 animate-slide-up">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                        <i class="fa fa-arrow-down text-danger mr-2"></i>
+                        卖盘 (五档)
+                    </h3>
+                    <div id="sellOrders" class="space-y-2">
+                        <div class="text-center py-4 text-gray-500">
+                            <i class="fa fa-spinner fa-spin mr-1"></i>
+                            加载中...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Trades -->
+            <div class="mb-8 animate-slide-up">
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                        <i class="fa fa-exchange text-primary mr-2"></i>
+                        最近成交
+                    </h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th
+                                        class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                    >
+                                        时间
+                                    </th>
+                                    <th
+                                        class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                    >
+                                        价格
+                                    </th>
+                                    <th
+                                        class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                    >
+                                        成交量
+                                    </th>
+                                    <th
+                                        class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                    >
+                                        方向
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody
+                                id="recentTrades"
+                                class="bg-white divide-y divide-gray-200"
+                            >
+                                <tr>
+                                    <td
+                                        colspan="4"
+                                        class="px-4 py-8 text-center text-gray-500"
+                                    >
+                                        <i
+                                            class="fa fa-spinner fa-spin mr-1"
+                                        ></i>
+                                        加载中...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analysis Summary -->
+            <div class="animate-slide-up">
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                        <i class="fa fa-bullseye text-primary mr-2"></i>
+                        综合分析报告
+                    </h3>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div>
+                            <h4 class="font-medium text-gray-900 mb-3">
+                                趋势分析
+                            </h4>
+                            <div id="trendAnalysis" class="space-y-2 text-sm">
+                                <div class="text-center py-4 text-gray-500">
+                                    <i class="fa fa-spinner fa-spin mr-1"></i>
+                                    分析中...
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-medium text-gray-900 mb-3">
+                                支撑阻力位
+                            </h4>
+                            <div
+                                id="supportResistance"
+                                class="space-y-2 text-sm"
+                            >
+                                <div class="text-center py-4 text-gray-500">
+                                    <i class="fa fa-spinner fa-spin mr-1"></i>
+                                    分析中...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="bg-gray-800 text-white py-8 mt-16">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center">
+                    <p class="text-gray-400">
+                        <i class="fa fa-code mr-1"></i>
+                        基于 Rust 构建的高性能技术分析平台
+                    </p>
+                    <p class="text-gray-500 text-sm mt-2">
+                        数据仅供参考，不构成投资建议 | 实时数据可能有延迟
+                    </p>
+                </div>
+            </div>
+        </footer>
 
         <script>
-            const chart = echarts.init(document.getElementById("chart"));
-            const option = {
-                title: { text: "价格 + MACD" },
-                tooltip: { trigger: "axis" },
-                grid: [
-                    { left: "5%", right: "5%", height: "60%" },
-                    { left: "5%", right: "5%", top: "70%", height: "20%" },
-                ],
-                xAxis: [
-                    { type: "time", gridIndex: 0 },
-                    { type: "time", gridIndex: 1 },
-                ],
-                yAxis: [
-                    { type: "value", gridIndex: 0, scale: true, name: "价格" },
-                    { type: "value", gridIndex: 1, scale: true, name: "MACD" },
-                ],
-                series: [
-                    {
-                        name: "price",
-                        type: "line",
-                        xAxisIndex: 0,
-                        yAxisIndex: 0,
-                        data: [],
-                        showSymbol: false,
-                    },
-                    {
-                        name: "DIF",
-                        type: "line",
-                        xAxisIndex: 1,
-                        yAxisIndex: 1,
-                        data: [],
-                        showSymbol: false,
-                    },
-                    {
-                        name: "DEA",
-                        type: "line",
-                        xAxisIndex: 1,
-                        yAxisIndex: 1,
-                        data: [],
-                        showSymbol: false,
-                    },
-                    {
-                        name: "MACD",
-                        type: "bar",
-                        xAxisIndex: 1,
-                        yAxisIndex: 1,
-                        data: [],
-                    },
-                ],
-            };
-            chart.setOption(option);
+            // Global variables
+            let priceChart, macdChart;
+            let currentSymbol = "600733";
+            let currentPeriod = "day";
+            let isRealTime = true;
+            let refreshInterval;
+            let isTradingTime = false;
+            let lastRefreshTime = 0;
 
-            async function switchMode(mode) {
-                await fetch("/api/set_mode/" + mode, { method: "POST" });
-                alert("mode set to " + mode);
-                loadChart();
-            }
+            // Initialize the application
+            document.addEventListener("DOMContentLoaded", function () {
+                initializeCharts();
+                setupEventListeners();
+                updateTradingStatus();
+                loadData();
+                startAutoRefresh();
 
-            async function loadChart() {
-                const symbol = document.getElementById("symbol").value.trim();
-                const date = document.getElementById("date").value.trim();
-                let url = "/api/history/" + encodeURIComponent(symbol);
-                if (date) url += "?date=" + encodeURIComponent(date);
-                const resp = await fetch(url);
-                if (!resp.ok) {
-                    alert("fetch error: " + resp.statusText);
-                    return;
-                }
-                const data = await resp.json();
-                const points = data.points || [];
-                // build arrays
-                const priceData = points.map((p) => [p.ts, p.price]);
-                const difData = points.map((p) => [p.ts, p.dif]);
-                const deaData = points.map((p) => [p.ts, p.dea]);
-                const macdData = points.map((p) => [p.ts, p.macd]);
-                chart.setOption({
-                    series: [
-                        { name: "price", data: priceData },
-                        { name: "DIF", data: difData },
-                        { name: "DEA", data: deaData },
-                        { name: "MACD", data: macdData },
-                    ],
+                // Check trading status every minute
+                setInterval(updateTradingStatus, 60000);
+            });
+
+            // Setup event listeners
+            function setupEventListeners() {
+                // Symbol input
+                const symbolInput = document.getElementById("symbolInput");
+                symbolInput.addEventListener("keypress", function (e) {
+                    if (e.key === "Enter") {
+                        updateSymbol(this.value);
+                    }
+                });
+
+                // Market selector
+                document
+                    .getElementById("marketSelector")
+                    .addEventListener("change", function () {
+                        isRealTime = this.value === "realtime";
+                        loadData();
+                    });
+
+                // Refresh button
+                document
+                    .getElementById("refreshBtn")
+                    .addEventListener("click", function () {
+                        loadData();
+                    });
+
+                // Period buttons
+                document.querySelectorAll(".period-btn").forEach((btn) => {
+                    btn.addEventListener("click", function () {
+                        document
+                            .querySelectorAll(".period-btn")
+                            .forEach((b) => {
+                                b.className =
+                                    "period-btn px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors";
+                            });
+                        this.className =
+                            "period-btn px-3 py-1 text-xs bg-primary text-white rounded";
+                        currentPeriod = this.dataset.period;
+                        loadData();
+                    });
+                });
+
+                // Navigation links
+                document.querySelectorAll(".nav-link").forEach((link) => {
+                    link.addEventListener("click", function (e) {
+                        e.preventDefault();
+                        document.querySelectorAll(".nav-link").forEach((l) => {
+                            l.className =
+                                "nav-link text-gray-500 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors";
+                        });
+                        this.className =
+                            "nav-link text-gray-900 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors";
+                    });
                 });
             }
 
-            // initial load
-            loadChart();
+            // Initialize charts
+            function initializeCharts() {
+                // Price chart
+                const priceChartDom = document.getElementById("priceChart");
+                priceChart = echarts.init(priceChartDom);
+
+                // MACD chart
+                const macdChartDom = document.getElementById("macdChart");
+                macdChart = echarts.init(macdChartDom);
+            }
+
+            // Update symbol
+            function updateSymbol(symbol) {
+                if (!symbol || symbol.trim() === "") return;
+
+                currentSymbol = symbol.trim().toUpperCase();
+
+                // Auto add exchange suffix if needed
+                if (
+                    currentSymbol.length === 6 &&
+                    !currentSymbol.includes(".")
+                ) {
+                    if (
+                        currentSymbol.startsWith("0") ||
+                        currentSymbol.startsWith("3")
+                    ) {
+                        currentSymbol += ".SZ";
+                    } else if (currentSymbol.startsWith("6")) {
+                        currentSymbol += ".SH";
+                    }
+                }
+
+                document.getElementById("symbolInput").value = currentSymbol;
+                loadData();
+            }
+
+            // Check if current time is trading time
+            function isTradingHours() {
+                const now = new Date();
+                const day = now.getDay();
+                const hours = now.getHours();
+                const minutes = now.getMinutes();
+
+                // Check if it's a weekday (Monday to Friday)
+                if (day === 0 || day === 6) {
+                    return false;
+                }
+
+                // Morning session: 9:30 - 11:30
+                const inMorningSession =
+                    (hours === 9 && minutes >= 30) ||
+                    hours === 10 ||
+                    (hours === 11 && minutes <= 30);
+
+                // Afternoon session: 13:00 - 15:00
+                const inAfternoonSession =
+                    hours === 13 ||
+                    hours === 14 ||
+                    (hours === 15 && minutes === 0);
+
+                return inMorningSession || inAfternoonSession;
+            }
+
+            // Check if current day is a trading day (simplified version)
+            function isTradingDay() {
+                const now = new Date();
+                const day = now.getDay();
+
+                // Monday to Friday are trading days (simplified)
+                return day >= 1 && day <= 5;
+            }
+
+            // Update trading status display
+            function updateTradingStatus() {
+                const statusElement = document.getElementById("tradingStatus");
+                const now = new Date();
+
+                if (!isTradingDay()) {
+                    statusElement.className = "trading-status status-closed";
+                    statusElement.innerHTML =
+                        '<i class="fa fa-clock-o mr-1"></i>休市日';
+                    isTradingTime = false;
+                } else if (isTradingHours()) {
+                    statusElement.className = "trading-status status-trading";
+                    statusElement.innerHTML =
+                        '<i class="fa fa-bullseye mr-1"></i>交易中';
+                    isTradingTime = true;
+                } else {
+                    statusElement.className = "trading-status status-break";
+                    statusElement.innerHTML =
+                        '<i class="fa fa-pause mr-1"></i>休市中';
+                    isTradingTime = false;
+                }
+            }
+
+            // Get appropriate refresh interval based on trading status
+            function getRefreshInterval() {
+                if (isRealTime && isTradingTime) {
+                    return 5000; // 5 seconds during trading hours
+                } else if (isRealTime) {
+                    return 60000; // 1 minute during non-trading hours
+                } else {
+                    return 300000; // 5 minutes for simulation mode
+                }
+            }
+
+            // Start auto refresh with dynamic interval
+            function startAutoRefresh() {
+                if (refreshInterval) {
+                    clearInterval(refreshInterval);
+                }
+
+                refreshInterval = setInterval(() => {
+                    const now = Date.now();
+                    const interval = getRefreshInterval();
+
+                    // Only refresh if interval has passed and not too soon after manual refresh
+                    if (now - lastRefreshTime >= interval) {
+                        loadData();
+                    }
+                }, 1000); // Check every second
+            }
+
+            // Load data from backend API
+            // Load data from backend API with better error handling
+            async function loadData() {
+                showLoading(true);
+                lastRefreshTime = Date.now();
+
+                try {
+                    // Normalize symbol
+                    const normalizedSymbol = normalizeSymbol(currentSymbol);
+                    document.getElementById("stockSymbol").textContent =
+                        normalizedSymbol;
+
+                    // Show loading states
+                    showLoadingStates();
+
+                    // Fetch data from backend API with timeout
+                    const [quote, klines, marketDepth, recentTrades, analysis] =
+                        await Promise.all([
+                            fetchWithTimeout(
+                                fetchQuote(normalizedSymbol),
+                                10000,
+                            ),
+                            fetchWithTimeout(
+                                fetchKlines(normalizedSymbol),
+                                15000,
+                            ),
+                            fetchWithTimeout(
+                                fetchMarketDepth(normalizedSymbol),
+                                8000,
+                            ),
+                            fetchWithTimeout(
+                                fetchRecentTrades(normalizedSymbol),
+                                8000,
+                            ),
+                            fetchWithTimeout(
+                                fetchTechnicalAnalysis(normalizedSymbol),
+                                20000,
+                            ),
+                        ]);
+
+                    // Update UI with data
+                    updateUI(
+                        quote,
+                        klines,
+                        marketDepth,
+                        recentTrades,
+                        analysis,
+                    );
+                    updateCharts(klines, analysis);
+
+                    // Show success message
+                    showStatusMessage("数据加载成功", "success");
+                } catch (error) {
+                    console.error("Error loading data:", error);
+
+                    // Handle different types of errors
+                    if (error.name === "TimeoutError") {
+                        showStatusMessage(
+                            "数据加载超时，请检查网络连接",
+                            "error",
+                        );
+                    } else if (
+                        error.response &&
+                        error.response.status === 404
+                    ) {
+                        showStatusMessage(
+                            "股票代码不存在或数据不可用",
+                            "error",
+                        );
+                    } else if (
+                        error.response &&
+                        error.response.status === 500
+                    ) {
+                        showStatusMessage(
+                            "服务器内部错误，请稍后重试",
+                            "error",
+                        );
+                    } else {
+                        showStatusMessage(
+                            "数据加载失败: " + (error.message || "未知错误"),
+                            "error",
+                        );
+                    }
+
+                    // Show fallback UI
+                    showFallbackUI();
+                } finally {
+                    showLoading(false);
+                }
+            }
+
+            // Show loading states for all components
+            function showLoadingStates() {
+                // Stock info loading
+                document.getElementById("stockName").textContent = "加载中...";
+                document.getElementById("currentPrice").textContent = "--";
+                document.getElementById("priceChange").textContent = "--";
+                document.getElementById("openPrice").textContent = "--";
+                document.getElementById("highPrice").textContent = "--";
+                document.getElementById("lowPrice").textContent = "--";
+                document.getElementById("prevClose").textContent = "--";
+                document.getElementById("volume").textContent = "--";
+                document.getElementById("amount").textContent = "--";
+
+                // Technical indicators loading
+                document.getElementById("rsiValue").textContent = "--";
+                document.getElementById("kdjK").textContent = "--";
+                document.getElementById("kdjD").textContent = "--";
+                document.getElementById("kdjJ").textContent = "--";
+                document.getElementById("bbUpper").textContent = "--";
+                document.getElementById("bbMiddle").textContent = "--";
+                document.getElementById("bbLower").textContent = "--";
+                document.getElementById("bbPercentB").textContent = "--";
+
+                // Signals loading
+                const signalsContainer =
+                    document.getElementById("signalsContainer");
+                signalsContainer.innerHTML = `
+                    <div class="col-span-full text-center py-8 text-gray-500">
+                        <i class="fa fa-spinner fa-spin text-2xl mb-2"></i>
+                        <p>正在分析数据，请稍候...</p>
+                    </div>
+                `;
+
+                // Market depth loading
+                document.getElementById("buyOrders").innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fa fa-spinner fa-spin mr-1"></i>
+                        加载中...
+                    </div>
+                `;
+                document.getElementById("sellOrders").innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fa fa-spinner fa-spin mr-1"></i>
+                        加载中...
+                    </div>
+                `;
+
+                // Recent trades loading
+                document.getElementById("recentTrades").innerHTML = `
+                    <tr>
+                        <td colspan="4" class="px-4 py-8 text-center text-gray-500">
+                            <i class="fa fa-spinner fa-spin mr-1"></i>
+                            加载中...
+                        </td>
+                    </tr>
+                `;
+
+                // Analysis summary loading
+                document.getElementById("trendAnalysis").innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fa fa-spinner fa-spin mr-1"></i>
+                        分析中...
+                    </div>
+                `;
+                document.getElementById("supportResistance").innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fa fa-spinner fa-spin mr-1"></i>
+                        分析中...
+                    </div>
+                `;
+            }
+
+            // Show fallback UI when data loading fails
+            function showFallbackUI() {
+                // Show fallback stock info
+                document.getElementById("stockName").textContent =
+                    "数据暂不可用";
+
+                // Show fallback message in signals area
+                const signalsContainer =
+                    document.getElementById("signalsContainer");
+                signalsContainer.innerHTML = `
+                    <div class="col-span-full text-center py-8 text-orange-500">
+                        <i class="fa fa-exclamation-triangle text-2xl mb-2"></i>
+                        <p>无法获取实时数据，显示模拟数据供参考</p>
+                        <p class="text-sm mt-2">请检查网络连接或稍后重试</p>
+                    </div>
+                `;
+
+                // Generate and show simulated chart data
+                generateSimulatedChartData();
+            }
+
+            // Generate simulated chart data for fallback
+            function generateSimulatedChartData() {
+                try {
+                    // Generate simulated K-line data
+                    const simulatedKlines = generateSimulatedKlines();
+
+                    // Update price chart with simulated data
+                    const priceOption = {
+                        tooltip: {
+                            trigger: "axis",
+                            axisPointer: {
+                                type: "shadow",
+                            },
+                        },
+                        legend: {
+                            data: ["K线", "MA5", "MA10", "MA20"],
+                            bottom: 0,
+                        },
+                        grid: {
+                            left: "3%",
+                            right: "4%",
+                            bottom: "15%",
+                            top: "3%",
+                            containLabel: true,
+                        },
+                        xAxis: {
+                            type: "category",
+                            data: simulatedKlines.map((_, i) => `D${i + 1}`),
+                            axisLabel: {
+                                interval:
+                                    simulatedKlines.length > 20
+                                        ? Math.floor(
+                                              simulatedKlines.length / 20,
+                                          )
+                                        : 0,
+                            },
+                        },
+                        yAxis: {
+                            type: "value",
+                            scale: true,
+                            axisLabel: {
+                                formatter: "{value}",
+                            },
+                        },
+                        series: [
+                            {
+                                name: "K线",
+                                type: "candlestick",
+                                data: simulatedKlines.map((k) => [
+                                    k.open.toFixed(2),
+                                    k.close.toFixed(2),
+                                    k.low.toFixed(2),
+                                    k.high.toFixed(2),
+                                ]),
+                                itemStyle: {
+                                    color: "#10b981",
+                                    color0: "#ef4444",
+                                    borderColor: "#10b981",
+                                    borderColor0: "#ef4444",
+                                },
+                            },
+                            {
+                                name: "MA5",
+                                type: "line",
+                                data: calculateMA(simulatedKlines, 5),
+                                smooth: true,
+                                lineStyle: {
+                                    width: 2,
+                                    color: "#3b82f6",
+                                },
+                            },
+                            {
+                                name: "MA10",
+                                type: "line",
+                                data: calculateMA(simulatedKlines, 10),
+                                smooth: true,
+                                lineStyle: {
+                                    width: 2,
+                                    color: "#f59e0b",
+                                },
+                            },
+                            {
+                                name: "MA20",
+                                type: "line",
+                                data: calculateMA(simulatedKlines, 20),
+                                smooth: true,
+                                lineStyle: {
+                                    width: 2,
+                                    color: "#8b5cf6",
+                                },
+                            },
+                        ],
+                    };
+
+                    priceChart.setOption(priceOption);
+
+                    // Generate simulated MACD data
+                    const macdData = generateSimulatedMACD(simulatedKlines);
+
+                    const macdOption = {
+                        tooltip: {
+                            trigger: "axis",
+                        },
+                        legend: {
+                            data: ["MACD", "DIF", "DEA"],
+                            bottom: 0,
+                        },
+                        grid: {
+                            left: "3%",
+                            right: "4%",
+                            bottom: "15%",
+                            top: "3%",
+                            containLabel: true,
+                        },
+                        xAxis: {
+                            type: "category",
+                            data: simulatedKlines.map((_, i) => i + 1),
+                            axisLabel: {
+                                interval:
+                                    simulatedKlines.length > 20
+                                        ? Math.floor(
+                                              simulatedKlines.length / 20,
+                                          )
+                                        : 0,
+                            },
+                        },
+                        yAxis: {
+                            type: "value",
+                            axisLabel: {
+                                formatter: "{value}",
+                            },
+                        },
+                        series: [
+                            {
+                                name: "MACD",
+                                type: "bar",
+                                data: macdData.map((d) => d[2]),
+                                itemStyle: {
+                                    color: function (params) {
+                                        return parseFloat(params.value) >= 0
+                                            ? "#10b981"
+                                            : "#ef4444";
+                                    },
+                                },
+                            },
+                            {
+                                name: "DIF",
+                                type: "line",
+                                data: macdData.map((d) => d[0]),
+                                lineStyle: {
+                                    width: 2,
+                                    color: "#3b82f6",
+                                },
+                            },
+                            {
+                                name: "DEA",
+                                type: "line",
+                                data: macdData.map((d) => d[1]),
+                                lineStyle: {
+                                    width: 2,
+                                    color: "#f59e0b",
+                                },
+                            },
+                        ],
+                    };
+
+                    macdChart.setOption(macdOption);
+                } catch (error) {
+                    console.error(
+                        "Error generating simulated chart data:",
+                        error,
+                    );
+                }
+            }
+
+            // Generate simulated K-line data
+            function generateSimulatedKlines() {
+                const klines = [];
+                const days = 30;
+                let basePrice = currentSymbol.startsWith("600733")
+                    ? 15.5
+                    : 10.5;
+                let currentPrice = basePrice;
+
+                for (let i = 0; i < days; i++) {
+                    // Generate daily price movement
+                    const change = (Math.random() - 0.5) * 0.03; // ±3% daily change
+                    currentPrice *= 1.0 + change;
+
+                    const open = currentPrice * (0.995 + Math.random() * 0.01);
+                    const high = open * (1.0 + Math.random() * 0.02);
+                    const low = open * (0.98 + Math.random() * 0.02);
+                    const close = (open + high + low + currentPrice) / 4.0;
+
+                    klines.push({
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume: Math.random() * 1000000 + 500000,
+                    });
+                }
+
+                return klines;
+            }
+
+            // Generate simulated MACD data
+            function generateSimulatedMACD(klines) {
+                const macdData = [];
+                let dif = 0;
+                let dea = 0;
+
+                for (let i = 0; i < klines.length; i++) {
+                    // Generate realistic MACD values
+                    dif = (Math.random() - 0.5) * 0.5;
+                    dea = (Math.random() - 0.5) * 0.4;
+                    const macd = (dif - dea) * 2;
+
+                    macdData.push([
+                        dif.toFixed(3),
+                        dea.toFixed(3),
+                        macd.toFixed(3),
+                    ]);
+                }
+
+                return macdData;
+            }
+
+            // Fetch with timeout
+            async function fetchWithTimeout(fetchPromise, timeoutMs) {
+                let timeoutId;
+                const timeoutPromise = new Promise((_, reject) => {
+                    timeoutId = setTimeout(() => {
+                        const error = new Error("Request timed out");
+                        error.name = "TimeoutError";
+                        reject(error);
+                    }, timeoutMs);
+                });
+
+                try {
+                    return await Promise.race([fetchPromise, timeoutPromise]);
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+            }
+
+            // Show status message
+            function showStatusMessage(message, type = "info") {
+                // Create status element if not exists
+                let statusElement = document.getElementById("statusMessage");
+                if (!statusElement) {
+                    statusElement = document.createElement("div");
+                    statusElement.id = "statusMessage";
+                    statusElement.className =
+                        "fixed top-20 right-4 z-50 px-4 py-2 rounded-lg shadow-lg transition-all duration-300 transform translate-x-full";
+                    document.body.appendChild(statusElement);
+                }
+
+                // Set message and style
+                statusElement.textContent = message;
+                statusElement.className =
+                    "fixed top-20 right-4 z-50 px-4 py-2 rounded-lg shadow-lg transition-all duration-300 transform";
+
+                switch (type) {
+                    case "success":
+                        statusElement.classList.add(
+                            "bg-green-500",
+                            "text-white",
+                        );
+                        break;
+                    case "error":
+                        statusElement.classList.add("bg-red-500", "text-white");
+                        break;
+                    case "warning":
+                        statusElement.classList.add(
+                            "bg-yellow-500",
+                            "text-white",
+                        );
+                        break;
+                    default:
+                        statusElement.classList.add(
+                            "bg-blue-500",
+                            "text-white",
+                        );
+                }
+
+                // Show message
+                setTimeout(() => {
+                    statusElement.classList.add("translate-x-0");
+                }, 100);
+
+                // Hide message after 3 seconds
+                setTimeout(() => {
+                    statusElement.classList.remove("translate-x-0");
+                    statusElement.classList.add("translate-x-full");
+                }, 3000);
+            }
+
+            // Enhanced symbol update function
+            function updateSymbol(symbol) {
+                if (!symbol || symbol.trim() === "") {
+                    showStatusMessage("请输入有效的股票代码", "warning");
+                    return;
+                }
+
+                const trimmedSymbol = symbol.trim().toUpperCase();
+
+                // Validate symbol format
+                if (
+                    !/^[0-9]{6}$/.test(trimmedSymbol) &&
+                    !/^[0-9]{6}\.[A-Z]{2}$/.test(trimmedSymbol)
+                ) {
+                    showStatusMessage("请输入6位数字的股票代码", "error");
+                    return;
+                }
+
+                currentSymbol = trimmedSymbol;
+
+                // Auto add exchange suffix if needed
+                if (
+                    currentSymbol.length === 6 &&
+                    !currentSymbol.includes(".")
+                ) {
+                    if (
+                        currentSymbol.startsWith("0") ||
+                        currentSymbol.startsWith("3")
+                    ) {
+                        currentSymbol += ".SZ";
+                    } else if (currentSymbol.startsWith("6")) {
+                        currentSymbol += ".SH";
+                    }
+                }
+
+                document.getElementById("symbolInput").value = currentSymbol;
+                showStatusMessage(`正在加载 ${currentSymbol} 数据...`, "info");
+                loadData();
+            }
+
+            // Normalize stock symbol
+            function normalizeSymbol(symbol) {
+                if (symbol.includes(".")) {
+                    return symbol;
+                }
+
+                if (symbol.length === 6) {
+                    if (symbol.startsWith("0") || symbol.startsWith("3")) {
+                        return symbol + ".SZ";
+                    } else if (symbol.startsWith("6")) {
+                        return symbol + ".SH";
+                    }
+                }
+
+                return symbol;
+            }
+
+            // Fetch quote from backend API
+            async function fetchQuote(symbol) {
+                const response = await fetch(`/api/quote/${symbol}`);
+                if (!response.ok) {
+                    throw new Error(
+                        `Failed to fetch quote: ${response.statusText}`,
+                    );
+                }
+                return response.json();
+            }
+
+            // Fetch K-line data from backend API
+            async function fetchKlines(symbol) {
+                const endDate = new Date();
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - 60); // Get last 60 days
+
+                const startDateStr = startDate.toISOString().split("T")[0];
+                const endDateStr = endDate.toISOString().split("T")[0];
+
+                const response = await fetch(
+                    `/api/kline/${symbol}?start_date=${startDateStr}&end_date=${endDateStr}&period=${currentPeriod}`,
+                );
+                if (!response.ok) {
+                    throw new Error(
+                        `Failed to fetch K-line data: ${response.statusText}`,
+                    );
+                }
+                return response.json();
+            }
+
+            // Fetch market depth from backend API
+            async function fetchMarketDepth(symbol) {
+                const response = await fetch(`/api/market-depth/${symbol}`);
+                if (!response.ok) {
+                    throw new Error(
+                        `Failed to fetch market depth: ${response.statusText}`,
+                    );
+                }
+                return response.json();
+            }
+
+            // Fetch recent trades from backend API
+            async function fetchRecentTrades(symbol) {
+                const response = await fetch(
+                    `/api/recent-trades/${symbol}?limit=10`,
+                );
+                if (!response.ok) {
+                    throw new Error(
+                        `Failed to fetch recent trades: ${response.statusText}`,
+                    );
+                }
+                return response.json();
+            }
+
+            // Fetch technical analysis from backend API
+            async function fetchTechnicalAnalysis(symbol) {
+                const endDate = new Date();
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - 60); // Get last 60 days
+
+                const startDateStr = startDate.toISOString().split("T")[0];
+                const endDateStr = endDate.toISOString().split("T")[0];
+
+                const response = await fetch(`/api/analyze/${symbol}`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        start_date: startDateStr,
+                        end_date: endDateStr,
+                        period: currentPeriod,
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(
+                        `Failed to fetch technical analysis: ${response.statusText}`,
+                    );
+                }
+
+                return response.json();
+            }
+
+            // Update UI with new data
+            function updateUI(
+                quote,
+                klines,
+                marketDepth,
+                recentTrades,
+                analysis,
+            ) {
+                if (!quote) return;
+
+                // Update stock information
+                document.getElementById("stockName").textContent =
+                    quote.name || "未知股票";
+                document.getElementById("stockSymbol").textContent =
+                    quote.symbol || currentSymbol;
+
+                // Update price information
+                if (quote.price) {
+                    document.getElementById("currentPrice").textContent =
+                        quote.price.toFixed(2);
+
+                    if (
+                        quote.change !== undefined &&
+                        quote.change_pct !== undefined
+                    ) {
+                        const priceChangeEl =
+                            document.getElementById("priceChange");
+                        const changeText = `${quote.change >= 0 ? "+" : ""}${quote.change.toFixed(2)} (${quote.change_pct >= 0 ? "+" : ""}${quote.change_pct.toFixed(2)}%)`;
+                        priceChangeEl.textContent = changeText;
+                        priceChangeEl.className = `text-sm font-medium ${quote.change >= 0 ? "text-success" : "text-danger"}`;
+                    }
+
+                    document.getElementById("openPrice").textContent =
+                        quote.open ? quote.open.toFixed(2) : "--";
+                    document.getElementById("highPrice").textContent =
+                        quote.high ? quote.high.toFixed(2) : "--";
+                    document.getElementById("lowPrice").textContent = quote.low
+                        ? quote.low.toFixed(2)
+                        : "--";
+                    document.getElementById("prevClose").textContent =
+                        quote.prev_close ? quote.prev_close.toFixed(2) : "--";
+
+                    // Update volume and amount
+                    if (quote.volume) {
+                        document.getElementById("volume").textContent =
+                            (quote.volume / 100).toFixed(1) + "万手";
+                    }
+                    if (quote.amount) {
+                        document.getElementById("amount").textContent =
+                            (quote.amount / 100000000).toFixed(2) + "亿";
+                    }
+                }
+
+                // Update trading time
+                const now = new Date();
+                document.getElementById("tradingTime").innerHTML =
+                    `<i class="fa fa-clock-o mr-1"></i>${now.toLocaleTimeString()}`;
+
+                // Update technical indicators if analysis data is available
+                if (analysis && analysis.analysis_results) {
+                    const lastAnalysis =
+                        analysis.analysis_results[
+                            analysis.analysis_results.length - 1
+                        ];
+                    if (lastAnalysis) {
+                        updateTechnicalIndicators(lastAnalysis);
+                        updateTradingSignals(lastAnalysis.signals || []);
+                        updateAnalysisSummary(
+                            lastAnalysis.trend,
+                            lastAnalysis.support_resistance,
+                        );
+                    }
+                }
+
+                // Update market depth
+                if (marketDepth) {
+                    updateMarketDepth(marketDepth);
+                }
+
+                // Update recent trades
+                if (recentTrades && recentTrades.length > 0) {
+                    updateRecentTrades(recentTrades);
+                }
+            }
+
+            // Update technical indicators display
+            function updateTechnicalIndicators(analysis) {
+                // RSI
+                if (analysis.rsi) {
+                    document.getElementById("rsiValue").textContent =
+                        analysis.rsi.rsi.toFixed(1);
+                    const rsiBar = document.getElementById("rsiBar");
+                    const rsiValue = analysis.rsi.rsi;
+
+                    rsiBar.style.width = `${Math.min(100, Math.max(0, rsiValue))}%`;
+
+                    const rsiStatus = document.getElementById("rsiStatus");
+                    if (rsiValue < 30) {
+                        rsiStatus.textContent = "RSI超卖区域";
+                        rsiStatus.className =
+                            "text-sm font-medium text-green-600";
+                        rsiBar.className =
+                            "bg-green-500 h-2 rounded-full transition-all duration-500";
+                    } else if (rsiValue > 70) {
+                        rsiStatus.textContent = "RSI超买区域";
+                        rsiStatus.className =
+                            "text-sm font-medium text-red-600";
+                        rsiBar.className =
+                            "bg-red-500 h-2 rounded-full transition-all duration-500";
+                    } else {
+                        rsiStatus.textContent = "RSI中性区域";
+                        rsiStatus.className =
+                            "text-sm font-medium text-blue-600";
+                        rsiBar.className =
+                            "bg-warning h-2 rounded-full transition-all duration-500";
+                    }
+                }
+
+                // KDJ
+                if (analysis.kdj) {
+                    document.getElementById("kdjK").textContent =
+                        analysis.kdj.k.toFixed(1);
+                    document.getElementById("kdjD").textContent =
+                        analysis.kdj.d.toFixed(1);
+                    document.getElementById("kdjJ").textContent =
+                        analysis.kdj.j.toFixed(1);
+
+                    const kdjSignal = document.getElementById("kdjSignal");
+                    const k = analysis.kdj.k;
+                    const d = analysis.kdj.d;
+
+                    if (k > d && k - d > 1) {
+                        kdjSignal.innerHTML =
+                            '<i class="fa fa-arrow-up mr-1"></i>K线上穿D线 (金叉)';
+                        kdjSignal.className =
+                            "mt-4 text-sm font-medium text-green-600";
+                    } else if (k < d && d - k > 1) {
+                        kdjSignal.innerHTML =
+                            '<i class="fa fa-arrow-down mr-1"></i>K线下穿D线 (死叉)';
+                        kdjSignal.className =
+                            "mt-4 text-sm font-medium text-red-600";
+                    } else {
+                        kdjSignal.innerHTML =
+                            '<i class="fa fa-minus mr-1"></i>K线D线粘合';
+                        kdjSignal.className =
+                            "mt-4 text-sm font-medium text-gray-600";
+                    }
+                }
+
+                // Bollinger Bands
+                if (analysis.bollinger_bands) {
+                    const bb = analysis.bollinger_bands;
+                    document.getElementById("bbUpper").textContent =
+                        bb.upper.toFixed(2);
+                    document.getElementById("bbMiddle").textContent =
+                        bb.middle.toFixed(2);
+                    document.getElementById("bbLower").textContent =
+                        bb.lower.toFixed(2);
+                    document.getElementById("bbPercentB").textContent =
+                        bb.percent_b.toFixed(2);
+
+                    const bbStatus = document.getElementById("bbStatus");
+                    if (bb.percent_b < 0.2) {
+                        bbStatus.innerHTML =
+                            '<i class="fa fa-arrow-up mr-1"></i>价格接近下轨，可能反弹';
+                        bbStatus.className =
+                            "mt-4 text-sm font-medium text-green-600";
+                    } else if (bb.percent_b > 0.8) {
+                        bbStatus.innerHTML =
+                            '<i class="fa fa-arrow-down mr-1"></i>价格接近上轨，可能回调';
+                        bbStatus.className =
+                            "mt-4 text-sm font-medium text-red-600";
+                    } else {
+                        bbStatus.innerHTML =
+                            '<i class="fa fa-info-circle mr-1"></i>价格在布林带中间';
+                        bbStatus.className =
+                            "mt-4 text-sm font-medium text-blue-600";
+                    }
+                }
+            }
+
+            // Update market depth display
+            function updateMarketDepth(marketDepth) {
+                const buyOrdersEl = document.getElementById("buyOrders");
+                const sellOrdersEl = document.getElementById("sellOrders");
+
+                buyOrdersEl.innerHTML = "";
+                sellOrdersEl.innerHTML = "";
+
+                // Update buy orders
+                if (marketDepth.buyOrders && marketDepth.buyOrders.length > 0) {
+                    marketDepth.buyOrders.forEach((order) => {
+                        const orderEl = document.createElement("div");
+                        orderEl.className =
+                            "flex justify-between items-center p-2 bg-green-50 rounded";
+                        orderEl.innerHTML = `
+                        <span class="font-medium text-green-800">${order.price.toFixed(2)}</span>
+                        <span class="text-sm text-green-600">${(order.volume / 100).toFixed(0)}手</span>
+                    `;
+                        buyOrdersEl.appendChild(orderEl);
+                    });
+                } else {
+                    buyOrdersEl.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fa fa-info-circle mr-1"></i>
+                        暂无买盘数据
+                    </div>
+                `;
+                }
+
+                // Update sell orders
+                if (
+                    marketDepth.sellOrders &&
+                    marketDepth.sellOrders.length > 0
+                ) {
+                    marketDepth.sellOrders.forEach((order) => {
+                        const orderEl = document.createElement("div");
+                        orderEl.className =
+                            "flex justify-between items-center p-2 bg-red-50 rounded";
+                        orderEl.innerHTML = `
+                        <span class="font-medium text-red-800">${order.price.toFixed(2)}</span>
+                        <span class="text-sm text-red-600">${(order.volume / 100).toFixed(0)}手</span>
+                    `;
+                        sellOrdersEl.appendChild(orderEl);
+                    });
+                } else {
+                    sellOrdersEl.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fa fa-info-circle mr-1"></i>
+                        暂无卖盘数据
+                    </div>
+                `;
+                }
+            }
+
+            // Update recent trades display
+            function updateRecentTrades(trades) {
+                const recentTradesEl = document.getElementById("recentTrades");
+                recentTradesEl.innerHTML = "";
+
+                trades.forEach((trade) => {
+                    const tradeEl = document.createElement("tr");
+                    const time = new Date(trade.timestamp);
+                    const timeStr = time.toLocaleTimeString();
+
+                    tradeEl.innerHTML = `
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${timeStr}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm font-medium ${trade.side === "buy" ? "text-green-600" : "text-red-600"}">${trade.price.toFixed(2)}</td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${(trade.volume / 100).toFixed(0)}手</td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                        <span class="px-2 py-1 text-xs rounded-full ${trade.side === "buy" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}">
+                            ${trade.side === "buy" ? "买入" : "卖出"}
+                        </span>
+                    </td>
+                `;
+                    recentTradesEl.appendChild(tradeEl);
+                });
+            }
+
+            // Update trading signals display
+            function updateTradingSignals(signals) {
+                const signalsContainer =
+                    document.getElementById("signalsContainer");
+                signalsContainer.innerHTML = "";
+
+                if (signals.length === 0) {
+                    signalsContainer.innerHTML = `
+                    <div class="col-span-full text-center py-8 text-gray-500">
+                        <i class="fa fa-info-circle text-2xl mb-2"></i>
+                        暂无明显交易信号
+                    </div>
+                `;
+                    return;
+                }
+
+                signals.forEach((signal) => {
+                    const signalEl = document.createElement("div");
+                    const signalType = signal.signal_type.toUpperCase();
+                    const signalColor =
+                        signal.type === "buy" ||
+                        signal.type === "strong_buy" ||
+                        signal.type === "long"
+                            ? "green"
+                            : "red";
+                    const signalIcon =
+                        signal.type === "buy" ||
+                        signal.type === "strong_buy" ||
+                        signal.type === "long"
+                            ? "arrow-up"
+                            : "arrow-down";
+                    const signalText =
+                        {
+                            buy: "买入",
+                            sell: "卖出",
+                            strong_buy: "强烈买入",
+                            strong_sell: "强烈卖出",
+                            long: "做多",
+                            short: "做空",
+                            hold: "持有",
+                            neutral: "中性",
+                        }[signal.type] || signal.type;
+
+                    signalEl.className = `signal-badge p-4 border border-${signalColor}-200 bg-${signalColor}-50 rounded-lg`;
+                    signalEl.innerHTML = `
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium text-${signalColor}-800">${signalText}信号</span>
+                        <span class="px-2 py-1 text-xs bg-${signalColor}-200 text-${signalColor}-800 rounded-full">
+                            强度: ${signal.strength}
+                        </span>
+                    </div>
+                    <p class="text-sm text-${signalColor}-700 mb-2">${signal.reason}</p>
+                    <div class="flex items-center justify-between text-xs text-${signalColor}-600">
+                        <span>${signal.indicator}: ${signal.value}</span>
+                        <span>置信度: ${(signal.confidence * 100).toFixed(0)}%</span>
+                    </div>
+                `;
+                    signalsContainer.appendChild(signalEl);
+                });
+            }
+
+            // Update analysis summary
+            function updateAnalysisSummary(trend, supportResistance) {
+                // Trend analysis
+                const trendAnalysisEl =
+                    document.getElementById("trendAnalysis");
+
+                if (trend) {
+                    const trendText =
+                        {
+                            upward: "上升趋势",
+                            downward: "下降趋势",
+                            sideways: "横盘整理",
+                            consolidation: "盘整",
+                        }[trend.direction] || "未知趋势";
+
+                    trendAnalysisEl.innerHTML = `
+                    <div class="flex items-center mb-2">
+                        <span class="text-gray-600">趋势方向:</span>
+                        <span class="ml-2 font-medium ${trend.direction === "upward" ? "text-green-600" : trend.direction === "downward" ? "text-red-600" : "text-blue-600"}">
+                            ${trendText}
+                        </span>
+                    </div>
+                    <div class="flex items-center mb-2">
+                        <span class="text-gray-600">趋势强度:</span>
+                        <div class="ml-2 flex space-x-1">
+                            ${Array(10)
+                                .fill(0)
+                                .map(
+                                    (_, i) => `
+                                <div class="w-2 h-2 rounded-full ${i < trend.strength ? "bg-blue-500" : "bg-gray-200"}"></div>
+                            `,
+                                )
+                                .join("")}
+                        </div>
+                    </div>
+                    ${
+                        trend.key_levels
+                            ? `
+                    <div class="flex items-center">
+                        <span class="text-gray-600">关键价位:</span>
+                        <span class="ml-2 text-sm">${trend.key_levels.map((l) => l.toFixed(2)).join(", ")}</span>
+                    </div>
+                    `
+                            : ""
+                    }
+                `;
+                } else {
+                    trendAnalysisEl.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fa fa-info-circle mr-1"></i>
+                        暂无趋势分析数据
+                    </div>
+                `;
+                }
+
+                // Support and resistance
+                const supportResistanceEl =
+                    document.getElementById("supportResistance");
+
+                if (supportResistance) {
+                    supportResistanceEl.innerHTML = `
+                    <div class="mb-3">
+                        <div class="text-gray-600 mb-1">支撑位:</div>
+                        <div class="space-y-1">
+                            ${supportResistance.support
+                                .map(
+                                    (level, index) => `
+                                <div class="flex justify-between items-center text-sm">
+                                    <span class="text-green-600">S${index + 1}</span>
+                                    <span class="font-medium">${level.toFixed(2)}</span>
+                                </div>
+                            `,
+                                )
+                                .join("")}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-gray-600 mb-1">阻力位:</div>
+                        <div class="space-y-1">
+                            ${supportResistance.resistance
+                                .map(
+                                    (level, index) => `
+                                <div class="flex justify-between items-center text-sm">
+                                    <span class="text-red-600">R${index + 1}</span>
+                                    <span class="font-medium">${level.toFixed(2)}</span>
+                                </div>
+                            `,
+                                )
+                                .join("")}
+                        </div>
+                    </div>
+                `;
+                } else {
+                    supportResistanceEl.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <i class="fa fa-info-circle mr-1"></i>
+                        暂无支撑阻力位数据
+                    </div>
+                `;
+                }
+            }
+
+            // Update charts with new data
+            function updateCharts(klines, analysis) {
+                if (!klines || klines.length === 0) return;
+
+                // Update price chart
+                const priceOption = {
+                    tooltip: {
+                        trigger: "axis",
+                        axisPointer: {
+                            type: "shadow",
+                        },
+                    },
+                    legend: {
+                        data: ["K线", "MA5", "MA10", "MA20"],
+                        bottom: 0,
+                    },
+                    grid: {
+                        left: "3%",
+                        right: "4%",
+                        bottom: "15%",
+                        top: "3%",
+                        containLabel: true,
+                    },
+                    xAxis: {
+                        type: "category",
+                        data: klines.map((k) => {
+                            const date = new Date(k.timestamp);
+                            return currentPeriod === "day"
+                                ? date.toLocaleDateString()
+                                : `${date.getMonth() + 1}/${date.getDate()}`;
+                        }),
+                        axisLabel: {
+                            interval:
+                                klines.length > 20
+                                    ? Math.floor(klines.length / 20)
+                                    : 0,
+                            rotate: 45,
+                        },
+                    },
+                    yAxis: {
+                        type: "value",
+                        scale: true,
+                        axisLabel: {
+                            formatter: "{value}",
+                        },
+                    },
+                    series: [
+                        {
+                            name: "K线",
+                            type: "candlestick",
+                            data: klines.map((k) => [
+                                k.open.toFixed(2),
+                                k.close.toFixed(2),
+                                k.low.toFixed(2),
+                                k.high.toFixed(2),
+                            ]),
+                            itemStyle: {
+                                color: "#10b981",
+                                color0: "#ef4444",
+                                borderColor: "#10b981",
+                                borderColor0: "#ef4444",
+                            },
+                        },
+                        {
+                            name: "MA5",
+                            type: "line",
+                            data: calculateMA(klines, 5),
+                            smooth: true,
+                            lineStyle: {
+                                width: 2,
+                                color: "#3b82f6",
+                            },
+                        },
+                        {
+                            name: "MA10",
+                            type: "line",
+                            data: calculateMA(klines, 10),
+                            smooth: true,
+                            lineStyle: {
+                                width: 2,
+                                color: "#f59e0b",
+                            },
+                        },
+                        {
+                            name: "MA20",
+                            type: "line",
+                            data: calculateMA(klines, 20),
+                            smooth: true,
+                            lineStyle: {
+                                width: 2,
+                                color: "#8b5cf6",
+                            },
+                        },
+                    ],
+                };
+
+                priceChart.setOption(priceOption);
+
+                // Update MACD chart if analysis data is available
+                if (analysis && analysis.analysis_results) {
+                    const macdData = analysis.analysis_results
+                        .filter((a) => a.macd)
+                        .map((a) => {
+                            const macd = a.macd.unwrap();
+                            return [
+                                macd.dif.toFixed(3),
+                                macd.dea.toFixed(3),
+                                macd.macd.toFixed(3),
+                            ];
+                        });
+
+                    if (macdData.length > 0) {
+                        const macdOption = {
+                            tooltip: {
+                                trigger: "axis",
+                            },
+                            legend: {
+                                data: ["MACD", "DIF", "DEA"],
+                                bottom: 0,
+                            },
+                            grid: {
+                                left: "3%",
+                                right: "4%",
+                                bottom: "15%",
+                                top: "3%",
+                                containLabel: true,
+                            },
+                            xAxis: {
+                                type: "category",
+                                data: klines
+                                    .slice(-macdData.length)
+                                    .map((_, i) => i + 1),
+                                axisLabel: {
+                                    interval:
+                                        macdData.length > 20
+                                            ? Math.floor(macdData.length / 20)
+                                            : 0,
+                                },
+                            },
+                            yAxis: {
+                                type: "value",
+                                axisLabel: {
+                                    formatter: "{value}",
+                                },
+                            },
+                            series: [
+                                {
+                                    name: "MACD",
+                                    type: "bar",
+                                    data: macdData.map((d) => d[2]),
+                                    itemStyle: {
+                                        color: function (params) {
+                                            return parseFloat(params.value) >= 0
+                                                ? "#10b981"
+                                                : "#ef4444";
+                                        },
+                                    },
+                                },
+                                {
+                                    name: "DIF",
+                                    type: "line",
+                                    data: macdData.map((d) => d[0]),
+                                    lineStyle: {
+                                        width: 2,
+                                        color: "#3b82f6",
+                                    },
+                                },
+                                {
+                                    name: "DEA",
+                                    type: "line",
+                                    data: macdData.map((d) => d[1]),
+                                    lineStyle: {
+                                        width: 2,
+                                        color: "#f59e0b",
+                                    },
+                                },
+                            ],
+                        };
+
+                        macdChart.setOption(macdOption);
+                    }
+                }
+            }
+
+            // Calculate moving average
+            function calculateMA(data, period) {
+                const result = [];
+                for (let i = 0; i < data.length; i++) {
+                    if (i < period - 1) {
+                        result.push("-");
+                        continue;
+                    }
+                    let sum = 0;
+                    for (let j = 0; j < period; j++) {
+                        sum += data[i - j].close;
+                    }
+                    result.push((sum / period).toFixed(2));
+                }
+                return result;
+            }
+
+            // Show loading state
+            function showLoading(show) {
+                const refreshBtn = document.getElementById("refreshBtn");
+                if (show) {
+                    refreshBtn.innerHTML =
+                        '<div class="loading-spinner inline-block mr-1"></div>加载中...';
+                    refreshBtn.disabled = true;
+                } else {
+                    refreshBtn.innerHTML =
+                        '<i class="fa fa-bullseye mr-1"></i>刷新';
+                    refreshBtn.disabled = false;
+                }
+            }
+
+            // Show error message
+            function showError(message) {
+                // In a real app, you would show a toast or modal
+                console.error(message);
+
+                // Update status display
+                const signalsContainer =
+                    document.getElementById("signalsContainer");
+                signalsContainer.innerHTML = `
+                <div class="col-span-full text-center py-8 text-red-500">
+                    <i class="fa fa-exclamation-triangle text-2xl mb-2"></i>
+                    <p>${message}</p>
+                </div>
+            `;
+            }
+
+            // Handle window resize
+            window.addEventListener("resize", function () {
+                if (priceChart) priceChart.resize();
+                if (macdChart) macdChart.resize();
+            });
+
+            // Clean up on unload
+            window.addEventListener("beforeunload", function () {
+                if (refreshInterval) {
+                    clearInterval(refreshInterval);
+                }
+                if (priceChart) priceChart.dispose();
+                if (macdChart) macdChart.dispose();
+            });
         </script>
     </body>
 </html>

@@ -1,0 +1,20 @@
+name = "rust-intraday-macd"
+version = "0.1.0"
+environment = "test"
+
+[database]
+sqlite_path = "test_trading.db"
+redis_url = "redis://localhost:6379/1"
+
+[server]
+host = "localhost"
+port = 8081
+
+[trading]
+default_symbol = "600733.SH"
+macd_short = 12
+macd_long = 26
+macd_signal = 9
+
+[logging]
+level = "debug"

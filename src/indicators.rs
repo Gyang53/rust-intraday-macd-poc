@@ -6,7 +6,6 @@ use serde::Serialize;
 
 #[derive(Debug)]
 pub struct EMA {
-    period: usize,
     mult: f64,
     current: Option<f64>,
 }
@@ -15,7 +14,6 @@ impl EMA {
     pub fn new(period: usize) -> Self {
         let mult = 2.0 / (period as f64 + 1.0);
         EMA {
-            period,
             mult,
             current: None,
         }

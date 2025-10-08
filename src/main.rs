@@ -1,32 +1,37 @@
 // src/main.rs
+mod app;
+mod config;
+mod error;
 mod indicators;
 mod storage;
 mod web;
 
 use anyhow::Result;
+use app::TradingApp;
 use chrono::{NaiveTime, Utc};
 use clap::Parser;
+use config::AppConfig;
 use rand::Rng;
 use std::sync::Arc;
 use storage::{Storage, Tick};
 use tokio::time::{Duration, sleep};
 
 #[derive(Parser, Debug)]
-struct Config {
-    #[arg(long, default_value = "600733.SH")]
-    symbol: String,
+struct CliConfig {
+    #[arg(long, help = "Override default symbol")]
+    symbol: Option<String>,
 
-    #[arg(long, default_value = "trading.db")]
-    sqlite: String,
+    #[arg(long, help = "Override SQLite database path")]
+    sqlite: Option<String>,
 
-    #[arg(long, default_value = "redis://127.0.0.1/")]
-    redis: String,
+    #[arg(long, help = "Override Redis URL")]
+    redis: Option<String>,
 
-    #[arg(long, default_value = "0.0.0.0")]
-    host: String,
+    #[arg(long, help = "Override server host")]
+    host: Option<String>,
 
-    #[arg(long, default_value_t = 8080)]
-    port: u16,
+    #[arg(long, help = "Override server port")]
+    port: Option<u16>,
 
     /// generate a simulated full trading day into sqlite for testing (yesterday)
     #[arg(long, default_value_t = false)]
@@ -35,25 +40,67 @@ struct Config {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cfg = Config::parse();
+    // Initialize logging
+    tracing_subscriber::fmt::init();
 
-    let storage = Arc::new(Storage::new(&cfg.sqlite, &cfg.redis)?);
+    // Parse CLI arguments
+    let cli_config = CliConfig::parse();
 
-    // Optionally populate one full day of simulated minute data (useful on non-trading days)
-    if cfg.gen_sim {
-        generate_and_store_mock_day(&storage, &cfg.symbol).await?;
-        println!("Generated simulated day for {}", cfg.symbol);
+    // Load application configuration
+    let mut app_config = AppConfig::new()?;
+
+    // Override config with CLI values if provided
+    if let Some(symbol) = cli_config.symbol {
+        app_config.trading.default_symbol = symbol;
+    }
+    if let Some(sqlite) = cli_config.sqlite {
+        app_config.database.sqlite_path = sqlite;
+    }
+    if let Some(redis) = cli_config.redis {
+        app_config.database.redis_url = redis;
+    }
+    if let Some(host) = cli_config.host {
+        app_config.server.host = host;
+    }
+    if let Some(port) = cli_config.port {
+        app_config.server.port = port;
     }
 
-    // start web server directly (not spawned due to Send trait issues with Actix-web)
-    let web_storage = storage.clone();
-    web::start_web(web_storage, &cfg.host, cfg.port)
+    tracing::info!(
+        "Starting {} v{} in {} mode",
+        app_config.name,
+        app_config.version,
+        app_config.environment
+    );
+
+    let storage = Arc::new(Storage::new(
+        &app_config.database.sqlite_path,
+        &app_config.database.redis_url,
+    )?);
+
+    let trading_app = Arc::new(TradingApp::new(
+        storage.clone(),
+        Arc::new(app_config.clone()),
+    ));
+
+    // Optionally populate one full day of simulated minute data (useful on non-trading days)
+    if cli_config.gen_sim {
+        generate_and_store_mock_day(&storage, &app_config.trading.default_symbol).await?;
+        tracing::info!(
+            "Generated simulated day for {}",
+            app_config.trading.default_symbol
+        );
+    }
+
+    // Start web server
+    web::start_web(trading_app, &app_config.server.host, app_config.server.port)
         .await
         .unwrap();
 
     // Keep main alive. In production your strategy loop would run here.
-    let host = cfg.host.clone();
-    println!("Service running. Open http://{}:{}/", host, cfg.port);
+    let server_address = app_config.get_server_address();
+    tracing::info!("Service running. Open http://{}/", server_address);
+
     loop {
         sleep(Duration::from_secs(60)).await;
     }
@@ -64,6 +111,7 @@ async fn generate_and_store_mock_day(storage: &Arc<Storage>, symbol: &str) -> Re
     // pick date = yesterday
     let today = chrono::Local::now().date_naive();
     let date = today - chrono::Duration::days(1);
+
     // trading sessions:
     let morning_start = NaiveTime::from_hms_opt(9, 30, 0).unwrap();
     let morning_end = NaiveTime::from_hms_opt(11, 30, 0).unwrap();
